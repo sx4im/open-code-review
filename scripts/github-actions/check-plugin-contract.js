@@ -211,20 +211,20 @@ const PLUGIN_DECLARATIONS = [
 // by SKILL_ROOTS, so the manifest and the tree cannot drift apart.
 const AGENT_PLUGIN_MANIFESTS = [
   {
-    file: "plugins/open-code-review/plugin.json",
+    file: "plugins/open-code-review-copilot/plugin.json",
     host: "GitHub Copilot CLI",
     // Fixed by the schema, not declared in the manifest: resolve it from the
     // manifest directory, where Agent Plugins 1.0 places `skills/`.
     base: "manifest-dir",
     skillsDir: "skills",
-    target: "plugins/open-code-review/skills",
+    target: "plugins/open-code-review-copilot/skills",
   },
 ];
 
 // Skill trees. Each direct subdirectory must hold a SKILL.md whose frontmatter
 // `name` equals the directory name — `npx skills add --skill <name>` and every
 // skill loader address a skill by that name.
-const SKILL_ROOTS = ["skills", "plugins/open-code-review/skills"];
+const SKILL_ROOTS = ["skills", "plugins/open-code-review/skills", "plugins/open-code-review-copilot/skills"];
 
 // Command prompt directories. Each `.md` needs a `description` for the host to
 // render it in the slash-command list.
@@ -720,6 +720,68 @@ function checkAgentPluginManifests(specs, readJson, listDirs, readFile) {
   return { errors };
 }
 
+// Marketplace entries name the plugin a host installs, and the host resolves
+// the plugin root's manifests against that name. Two manifests in one root can
+// disagree without breaking anything only when neither is the one the host
+// reads as the plugin's identity: the entry's required manifest is the file
+// the host installs from, and a root `plugin.json` is read first by any host
+// that looks at the root, so both must carry the entry's `name`. A
+// host-namespaced manifest in a subdirectory (`.cursor-plugin/plugin.json`) is
+// not read as the root identity and is deliberately not covered.
+// marketplaces: MARKETPLACES entries; readJson(file) -> object | null;
+// probeFile(file) -> true when the path exists as a file.
+// Returns { errors: [{ file, message }] }.
+function checkMarketplaceManifestNames(marketplaces, readJson, probeFile) {
+  const errors = [];
+  for (const mp of marketplaces) {
+    const json = readJson(mp.file);
+    if (json === null) continue; // the marketplace loop already reported it
+    for (const entry of pluginEntries(json)) {
+      const sources = mp.readSources({ plugins: [entry] });
+      if (sources.length === 0) continue; // already reported
+      const src = sources[0];
+      if (src.value === null) continue; // already reported
+      const dir = path.posix
+        .normalize(src.value)
+        .replace(/^\.\//, "")
+        .replace(/\/+$/, "");
+      const requiredFile = `${dir}/${mp.requiredManifest}`;
+      const required = readJson(requiredFile);
+      if (required !== null && required.name !== entry.name) {
+        errors.push({
+          file: requiredFile,
+          message:
+            `${mp.host} marketplace entry "${entry.name}" points at \`${dir}\`, ` +
+            `but ${requiredFile} declares \`name: "${required.name}"\`. The host ` +
+            `installs the plugin under the marketplace entry's name, so the two must agree.`,
+        });
+      }
+      const rootFile = `${dir}/plugin.json`;
+      if (!probeFile(rootFile)) continue;
+      const root = readJson(rootFile);
+      if (root === null) {
+        errors.push({
+          file: rootFile,
+          message:
+            `${rootFile} is not valid JSON, but it sits in the plugin root the ` +
+            `${mp.host} marketplace entry "${entry.name}" points at.`,
+        });
+      } else if (root.name !== entry.name) {
+        errors.push({
+          file: rootFile,
+          message:
+            `${mp.host} marketplace entry "${entry.name}" points at \`${dir}\`, ` +
+            `but ${rootFile} declares \`name: "${root.name}"\`. A host that ` +
+            `resolves the plugin root reads the root manifest first and rejects ` +
+            `the install when the names disagree, so the root manifest must ` +
+            `carry the entry's name or live in its own plugin root.`,
+        });
+      }
+    }
+  }
+  return { errors };
+}
+
 // ---------------------------------------------------------------------------
 // GitHub Actions annotation + IO helpers
 // ---------------------------------------------------------------------------
@@ -1001,6 +1063,14 @@ function runManifestsCheck({ repoRoot = process.cwd() } = {}) {
     }
   }
 
+  // Marketplace entries -> the names of the manifests in their plugin roots.
+  const names = checkMarketplaceManifestNames(
+    MARKETPLACES,
+    (file) => readJsonOrNull(repoRoot, file),
+    (file) => probeKind(repoRoot, file) === "file"
+  );
+  errors.push(...names.errors);
+
   // Plugin manifests -> declared skills/commands paths.
   const declared = checkPluginDeclarations(PLUGIN_DECLARATIONS, (file) =>
     readJsonOrNull(repoRoot, file)
@@ -1155,6 +1225,7 @@ module.exports = {
   agentPluginNameProblem,
   validateAgentPluginManifest,
   checkAgentPluginManifests,
+  checkMarketplaceManifestNames,
   pluginEntries,
   listEntries,
   readFileOrNull,

@@ -44,6 +44,7 @@ const {
   agentPluginNameProblem,
   validateAgentPluginManifest,
   checkAgentPluginManifests,
+  checkMarketplaceManifestNames,
   pluginEntries,
   listEntries,
   readFileOrNull,
@@ -807,6 +808,102 @@ function testMarketplaceReadersDoNotThrowOnMalformedInput() {
   }
 }
 
+// --- marketplace manifest names --------------------------------------------
+//
+// Fixtures shaped like the real manifests: a Codex entry pointing at a plugin
+// root that also carries a host-namespaced Cursor manifest, and a Claude Code
+// entry pointing at its own subdirectory root.
+
+function nameCheckFixture({ rootName = null, requiredName = "open-code-review-codex" } = {}) {
+  const json = {
+    ".agents/plugins/marketplace.json": {
+      name: "open-code-review",
+      plugins: [
+        {
+          name: "open-code-review-codex",
+          source: { source: "local", path: "./plugins/open-code-review" },
+        },
+      ],
+    },
+    ".claude-plugin/marketplace.json": {
+      name: "open-code-review",
+      plugins: [
+        { name: "open-code-review", source: "./plugins/open-code-review/claude-code" },
+      ],
+    },
+    "plugins/open-code-review/.codex-plugin/plugin.json": { name: requiredName },
+    "plugins/open-code-review/claude-code/.claude-plugin/plugin.json": {
+      name: "open-code-review",
+    },
+    // A host-namespaced manifest in the Codex root, deliberately named
+    // differently: no host reads it as the root identity.
+    "plugins/open-code-review/.cursor-plugin/plugin.json": { name: "open-code-review" },
+  };
+  const files = new Set(Object.keys(json));
+  if (rootName !== null) {
+    json["plugins/open-code-review/plugin.json"] = { name: rootName };
+    files.add("plugins/open-code-review/plugin.json");
+  }
+  return {
+    readJson: (file) => (file in json ? json[file] : null),
+    probeFile: (file) => files.has(file),
+  };
+}
+
+function testMarketplaceManifestNamesAgreeWhenRootsAreClean() {
+  // The fixed layout: the Codex root carries no root manifest, so Codex falls
+  // back to the namespaced manifest, which agrees with the entry.
+  const { readJson, probeFile } = nameCheckFixture();
+  const { errors } = checkMarketplaceManifestNames(MARKETPLACES, readJson, probeFile);
+  assert.deepStrictEqual(errors, []);
+}
+
+function testMarketplaceManifestNamesRejectRootManifestMismatch() {
+  // The pre-fix layout: a root manifest named differently from the marketplace
+  // entry sits in the entry's plugin root. A host resolving the root reads
+  // that manifest first and rejects the install on the mismatch.
+  const { readJson, probeFile } = nameCheckFixture({ rootName: "open-code-review" });
+  const { errors } = checkMarketplaceManifestNames(MARKETPLACES, readJson, probeFile);
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(errors[0].file, "plugins/open-code-review/plugin.json");
+  assert.ok(/open-code-review-codex/.test(errors[0].message));
+  assert.ok(/open-code-review/.test(errors[0].message));
+}
+
+function testMarketplaceManifestNamesRejectRequiredManifestMismatch() {
+  // The manifest the host installs from must also agree with the entry: a
+  // rename there breaks the install the same way a root mismatch does.
+  const { readJson, probeFile } = nameCheckFixture({ requiredName: "open-code-review" });
+  const { errors } = checkMarketplaceManifestNames(MARKETPLACES, readJson, probeFile);
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(
+    errors[0].file,
+    "plugins/open-code-review/.codex-plugin/plugin.json"
+  );
+  assert.ok(/open-code-review-codex/.test(errors[0].message));
+}
+
+function testMarketplaceManifestNamesIgnoreNamespacedSubManifests() {
+  // The Cursor manifest in the Codex root is named differently from the Codex
+  // entry, but it lives in its own namespaced subdirectory, so no host reads
+  // it as the root identity and the check stays silent about it.
+  const { readJson, probeFile } = nameCheckFixture();
+  const { errors } = checkMarketplaceManifestNames(MARKETPLACES, readJson, probeFile);
+  assert.ok(!errors.some((e) => /cursor-plugin/.test(e.file)));
+}
+
+function testMarketplaceManifestNamesReportUnparseableRootManifest() {
+  // A root manifest that exists but does not parse is an error, not a silent
+  // skip: a host resolving the root would fail on it.
+  const { readJson, probeFile } = nameCheckFixture({ rootName: "open-code-review" });
+  const brokenRead = (file) =>
+    file === "plugins/open-code-review/plugin.json" ? null : readJson(file);
+  const { errors } = checkMarketplaceManifestNames(MARKETPLACES, brokenRead, probeFile);
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(errors[0].file, "plugins/open-code-review/plugin.json");
+  assert.ok(/not valid JSON/.test(errors[0].message));
+}
+
 // --- configuration sanity --------------------------------------------------
 
 function testDeclarationTargetsAreCoveredByTheTreesWeValidate() {
@@ -1120,6 +1217,11 @@ function main_() {
   testRealAgentPluginManifestDeclaresNameAndSchema();
   testPluginEntriesToleratesMalformedShapes();
   testMarketplaceReadersDoNotThrowOnMalformedInput();
+  testMarketplaceManifestNamesAgreeWhenRootsAreClean();
+  testMarketplaceManifestNamesRejectRootManifestMismatch();
+  testMarketplaceManifestNamesRejectRequiredManifestMismatch();
+  testMarketplaceManifestNamesIgnoreNamespacedSubManifests();
+  testMarketplaceManifestNamesReportUnparseableRootManifest();
   testListEntriesResolvesSymlinks();
   testWalkFollowsSymlinksWithoutLooping();
   testUnscannedDocsAreReportedNotSkippedSilently();

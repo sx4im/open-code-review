@@ -15,7 +15,7 @@ sidebar:
 워크플로는 Agent에 종속되지 않는 스킬인
 [`skills/open-code-review/SKILL.md`](https://github.com/alibaba/open-code-review/blob/main/skills/open-code-review/SKILL.md)에
 들어 있습니다. Copilot CLI 플러그인 매니페스트
-[`plugins/open-code-review/plugin.json`](https://github.com/alibaba/open-code-review/blob/main/plugins/open-code-review/plugin.json)
+[`plugins/open-code-review-copilot/plugin.json`](https://github.com/alibaba/open-code-review/blob/main/plugins/open-code-review-copilot/plugin.json)
 (Agent Plugins 1.0)가 번들 스킬을 `copilot plugin install`용으로 묶습니다.
 Copilot CLI는 표준 위치에서도 스킬을 읽으므로 스킬 디렉터리를 복사하는 방법도
 계속 사용할 수 있습니다.
@@ -25,7 +25,7 @@ Copilot CLI는 표준 위치에서도 스킬을 읽으므로 스킬 디렉터리
 플러그인을 설치하세요(권장).
 
 ```bash
-copilot plugin install alibaba/open-code-review:plugins/open-code-review
+copilot plugin install alibaba/open-code-review:plugins/open-code-review-copilot
 ```
 
 `open-code-review`와 `open-code-review-delegate` 스킬이 설치됩니다. 제거하려면

@@ -40,7 +40,7 @@ Install the plugin, which adds the two Agent Skills `open-code-review` and
 task; Copilot picks the skill.
 
 ```bash
-copilot plugin install alibaba/open-code-review:plugins/open-code-review
+copilot plugin install alibaba/open-code-review:plugins/open-code-review-copilot
 ```
 
 Copilot CLI's installer warns that direct installs (repo/path/URL) are
@@ -60,7 +60,7 @@ codex plugin marketplace add alibaba/open-code-review
 codex
 ```
 
-Open `/plugins`, install and enable **Open Code Review**, then start a new task.
+Open `/plugins`, install and enable **Open Code Review** (`open-code-review-codex`), then start a new task.
 The plugin exposes callable review skills backed by the local `ocr` CLI. For
 example:
 

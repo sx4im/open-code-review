@@ -17,7 +17,7 @@ behavior.
 The workflow lives in the agent-agnostic skill at
 [`skills/open-code-review/SKILL.md`](https://github.com/alibaba/open-code-review/blob/main/skills/open-code-review/SKILL.md).
 A Copilot CLI plugin manifest at
-[`plugins/open-code-review/plugin.json`](https://github.com/alibaba/open-code-review/blob/main/plugins/open-code-review/plugin.json)
+[`plugins/open-code-review-copilot/plugin.json`](https://github.com/alibaba/open-code-review/blob/main/plugins/open-code-review-copilot/plugin.json)
 (Agent Plugins 1.0) packages the bundled skills for `copilot plugin install`.
 Copilot CLI still reads skills from standard locations, so copying the skill
 directory also works.
@@ -27,7 +27,7 @@ directory also works.
 Install the plugin (recommended):
 
 ```bash
-copilot plugin install alibaba/open-code-review:plugins/open-code-review
+copilot plugin install alibaba/open-code-review:plugins/open-code-review-copilot
 ```
 
 This installs the `open-code-review` and `open-code-review-delegate` skills.

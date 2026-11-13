@@ -17,7 +17,7 @@ sidebar:
 Рабочий процесс находится в не зависящем от агента навыке по пути
 [`skills/open-code-review/SKILL.md`](https://github.com/alibaba/open-code-review/blob/main/skills/open-code-review/SKILL.md).
 Манифест плагина Copilot CLI
-[`plugins/open-code-review/plugin.json`](https://github.com/alibaba/open-code-review/blob/main/plugins/open-code-review/plugin.json)
+[`plugins/open-code-review-copilot/plugin.json`](https://github.com/alibaba/open-code-review/blob/main/plugins/open-code-review-copilot/plugin.json)
 (Agent Plugins 1.0) упаковывает встроенные навыки для `copilot plugin install`.
 Copilot CLI по-прежнему читает навыки из стандартных расположений, поэтому
 копирование каталога навыка тоже работает.
@@ -27,7 +27,7 @@ Copilot CLI по-прежнему читает навыки из стандар�
 Установите плагин (рекомендуется):
 
 ```bash
-copilot plugin install alibaba/open-code-review:plugins/open-code-review
+copilot plugin install alibaba/open-code-review:plugins/open-code-review-copilot
 ```
 
 Устанавливаются навыки `open-code-review` и `open-code-review-delegate`.
