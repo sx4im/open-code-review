@@ -720,6 +720,55 @@ function checkAgentPluginManifests(specs, readJson, listDirs, readFile) {
   return { errors };
 }
 
+// A plugin directory can carry several manifests (one per host, plus an
+// Agent Plugins 1.0 manifest at the plugin root), and a host installs the
+// plugin by the marketplace entry name. Every manifest in the directory that
+// names the plugin must agree with that entry: Codex reads the root
+// plugin.json first and rejects the install when it names a different plugin
+// (root "open-code-review" against the "open-code-review-codex"
+// entry), even though every declared path resolves. A manifest with no
+// `name`, or one that cannot be read, is not judged here — the missing-file
+// and schema checks own those cases.
+// `entries` are { file, host, entryName, dir, requiredManifest }.
+function checkMarketplaceEntryNames(entries, readJson) {
+  const errors = [];
+  for (const entry of entries) {
+    const hostManifest = readJson(`${entry.dir}/${entry.requiredManifest}`);
+    if (
+      hostManifest !== null &&
+      typeof hostManifest.name === "string" &&
+      hostManifest.name !== "" &&
+      hostManifest.name !== entry.entryName
+    ) {
+      errors.push({
+        file: `${entry.dir}/${entry.requiredManifest}`,
+        message:
+          `${entry.file} entry "${entry.entryName}" points at \`${entry.dir}\`, ` +
+          `whose ${entry.requiredManifest} declares \`name: "${hostManifest.name}"\`. ` +
+          `The ${entry.host} plugin is installed by the marketplace entry name, ` +
+          `so the manifest must name the same plugin.`,
+      });
+    }
+    const rootManifest = readJson(`${entry.dir}/plugin.json`);
+    if (
+      rootManifest !== null &&
+      typeof rootManifest.name === "string" &&
+      rootManifest.name !== "" &&
+      rootManifest.name !== entry.entryName
+    ) {
+      errors.push({
+        file: `${entry.dir}/plugin.json`,
+        message:
+          `${entry.file} entry "${entry.entryName}" points at \`${entry.dir}\`, ` +
+          `whose plugin.json declares \`name: "${rootManifest.name}"\`. The host ` +
+          `resolves the root manifest first and rejects the install when it ` +
+          `names a different plugin, so the manifest must name the same plugin.`,
+      });
+    }
+  }
+  return { errors };
+}
+
 // ---------------------------------------------------------------------------
 // GitHub Actions annotation + IO helpers
 // ---------------------------------------------------------------------------
@@ -952,6 +1001,7 @@ function runManifestsCheck({ repoRoot = process.cwd() } = {}) {
   let checked = 0;
 
   // Marketplace entries -> plugin directories.
+  const nameEntries = [];
   for (const mp of MARKETPLACES) {
     const json = readJsonOrNull(repoRoot, mp.file);
     if (json === null) {
@@ -990,16 +1040,33 @@ function runManifestsCheck({ repoRoot = process.cwd() } = {}) {
         });
         continue;
       }
-      if (probeKind(repoRoot, `${dir}/${mp.requiredManifest}`) !== "file") {
+      const hasRequiredManifest =
+        probeKind(repoRoot, `${dir}/${mp.requiredManifest}`) === "file";
+      if (!hasRequiredManifest) {
         errors.push({
           file: mp.file,
           message:
             `${mp.file} entry "${src.name}" points at \`${dir}\`, which has no ` +
             `\`${mp.requiredManifest}\`. ${mp.host} would not recognise it as a plugin.`,
         });
+      } else {
+        nameEntries.push({
+          file: mp.file,
+          host: mp.host,
+          entryName: src.name,
+          dir,
+          requiredManifest: mp.requiredManifest,
+        });
       }
     }
   }
+
+  // Marketplace entry names must agree with the manifests in the plugin
+  // directories they point at (see checkMarketplaceEntryNames).
+  const names = checkMarketplaceEntryNames(nameEntries, (file) =>
+    readJsonOrNull(repoRoot, file)
+  );
+  errors.push(...names.errors);
 
   // Plugin manifests -> declared skills/commands paths.
   const declared = checkPluginDeclarations(PLUGIN_DECLARATIONS, (file) =>
@@ -1155,6 +1222,7 @@ module.exports = {
   agentPluginNameProblem,
   validateAgentPluginManifest,
   checkAgentPluginManifests,
+  checkMarketplaceEntryNames,
   pluginEntries,
   listEntries,
   readFileOrNull,

@@ -44,6 +44,7 @@ const {
   agentPluginNameProblem,
   validateAgentPluginManifest,
   checkAgentPluginManifests,
+  checkMarketplaceEntryNames,
   pluginEntries,
   listEntries,
   readFileOrNull,
@@ -822,6 +823,68 @@ function testDeclarationTargetsAreCoveredByTheTreesWeValidate() {
   }
 }
 
+// --- marketplace entry names ------------------------------------------------
+
+const CODEX_ENTRY = {
+  file: ".agents/plugins/marketplace.json",
+  host: "Codex",
+  entryName: "open-code-review-codex",
+  dir: "p",
+  requiredManifest: ".codex-plugin/plugin.json",
+};
+
+function runNameCheck({ host = {}, root = undefined } = {}) {
+  // `root: undefined` means the plugin directory carries no root plugin.json.
+  const files = { "p/.codex-plugin/plugin.json": host };
+  if (root !== undefined) files["p/plugin.json"] = root;
+  return checkMarketplaceEntryNames(
+    [CODEX_ENTRY],
+    (file) => (Object.prototype.hasOwnProperty.call(files, file) ? files[file] : null)
+  );
+}
+
+function testMarketplaceEntryNamesCatchRootMismatch() {
+  // The reported shape: the host manifest agrees, the root manifest names a
+  // different plugin, and the install fails on the root name.
+  const { errors } = runNameCheck({
+    host: { name: "open-code-review-codex" },
+    root: { name: "open-code-review" },
+  });
+  assert.strictEqual(errors.length, 1);
+  assert.ok(/plugin\.json declares `name: "open-code-review"`/.test(errors[0].message));
+  assert.ok(/"open-code-review-codex"/.test(errors[0].message));
+
+  // Everything agreeing passes.
+  assert.deepStrictEqual(
+    runNameCheck({
+      host: { name: "open-code-review-codex" },
+      root: { name: "open-code-review-codex" },
+    }).errors,
+    []
+  );
+
+  // No root manifest at all: nothing to disagree with.
+  assert.deepStrictEqual(
+    runNameCheck({ host: { name: "open-code-review-codex" } }).errors,
+    []
+  );
+
+  // A host manifest naming a different plugin is the same failure mode.
+  const hostMismatch = runNameCheck({
+    host: { name: "open-code-review" },
+    root: { name: "open-code-review-codex" },
+  });
+  assert.strictEqual(hostMismatch.errors.length, 1);
+  assert.ok(
+    /\.codex-plugin\/plugin\.json declares `name: "open-code-review"`/.test(
+      hostMismatch.errors[0].message
+    )
+  );
+
+  // A manifest with no name is not judged here; the schema checks own it.
+  assert.deepStrictEqual(runNameCheck({ host: {}, root: {} }).errors, []);
+}
+
 // --- end-to-end over temp fixtures ----------------------------------------
 //
 // These runners are deliberately NOT pointed at the real repository. The two
@@ -1027,6 +1090,50 @@ function testManifestsRunnerReportsMissingManifests() {
   });
 }
 
+function testManifestsRunnerFlagsRootNameMismatch() {
+  withTempDir((tmp) => {
+    // Minimal Codex marketplace + plugin dir: the host manifest agrees, the
+    // root manifest does not. The runner must surface the name error (among
+    // the unrelated missing-tree errors of a partial fixture).
+    fs.mkdirSync(path.join(tmp, ".agents", "plugins"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, ".agents", "plugins", "marketplace.json"),
+      JSON.stringify({
+        name: "open-code-review",
+        plugins: [
+          { name: "open-code-review-codex", source: { source: "local", path: "./p" } },
+        ],
+      })
+    );
+    fs.mkdirSync(path.join(tmp, "p", ".codex-plugin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, "p", ".codex-plugin", "plugin.json"),
+      JSON.stringify({ name: "open-code-review-codex" })
+    );
+    fs.writeFileSync(
+      path.join(tmp, "p", "plugin.json"),
+      JSON.stringify({ name: "open-code-review" })
+    );
+    const { code, lines } = withCapturedStdout(() => runManifestsCheck({ repoRoot: tmp }));
+    assert.strictEqual(code, 1);
+    assert.ok(
+      lines.some((l) => /plugin\.json declares `name: "open-code-review"`/.test(l)),
+      lines.join("\n")
+    );
+
+    // Same fixture with the names agreeing: the name error must disappear.
+    fs.writeFileSync(
+      path.join(tmp, "p", "plugin.json"),
+      JSON.stringify({ name: "open-code-review-codex" })
+    );
+    const fixed = withCapturedStdout(() => runManifestsCheck({ repoRoot: tmp }));
+    assert.ok(
+      !fixed.lines.some((l) => /declares `name:/.test(l)),
+      fixed.lines.join("\n")
+    );
+  });
+}
+
 function testAnnotationDataIsEscaped() {
   // GitHub truncates an annotation at an unescaped newline, losing exactly the
   // part worth reading. Manifest values and frontmatter scalars are
@@ -1120,6 +1227,7 @@ function main_() {
   testRealAgentPluginManifestDeclaresNameAndSchema();
   testPluginEntriesToleratesMalformedShapes();
   testMarketplaceReadersDoNotThrowOnMalformedInput();
+  testMarketplaceEntryNamesCatchRootMismatch();
   testListEntriesResolvesSymlinks();
   testWalkFollowsSymlinksWithoutLooping();
   testUnscannedDocsAreReportedNotSkippedSilently();
@@ -1130,6 +1238,7 @@ function main_() {
   testLinksRunnerPassesAndReportsCounts();
   testLinksRunnerTripsTheFloorOnAnEmptyTree();
   testManifestsRunnerReportsMissingManifests();
+  testManifestsRunnerFlagsRootNameMismatch();
   testAnnotationDataIsEscaped();
   testUnknownModeIsAnError();
   testMainDispatchesEachMode();
